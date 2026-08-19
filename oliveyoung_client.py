@@ -101,7 +101,7 @@ class OliveYoungClient:
             selector_found = True
             if wait_selector:
                 try:
-                    page.wait_for_selector(wait_selector, timeout=15000)
+                    page.wait_for_selector(wait_selector, timeout=1500)
                 except Exception:
                     selector_found = False
 
@@ -146,7 +146,7 @@ class OliveYoungClient:
                         f"selector 미출현 - 짧게 한 번만 재확인 후 계속 진행: "
                         f"{wait_selector} ({url})"
                     )
-                    time.sleep(3 + random.uniform(0, 2))
+                    time.sleep(0.5 + random.uniform(0, 0.5))
                     continue
                 else:
                     # 더 이상 재시도하지 않고 지금까지 받은 HTML을 그대로 반환.
