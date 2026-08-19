@@ -29,6 +29,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      # 2. Playwright Chromium 브라우저 및 시스템 라이브러리 설치
+      - name: Install Playwright Browsers
+        run: |
+          playwright install chromium --with-deps
+
       # 3. 크롤링 스크립트 실행
       - name: Run Daily Collector
         run: |
