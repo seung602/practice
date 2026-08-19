@@ -57,38 +57,30 @@ def collect_catalog():
                     page_success = False
                     last_error = None
 
-                    # 원칙 3: 페이지별 최대 3회 재시도 (지수 백오프 + 지터)
-                    for attempt in range(1, 4):
-                        try:
-                            raw_html = client.fetch_category_page(
-                                sub_code,
-                                page_idx=page_idx,
-                                rows_per_page=config.ROWS_PER_PAGE
-                            )
-                            products = parse_products(raw_html, category=sub_name)
+                    # ⚠️ 이전에는 여기서 3회, client 내부에서 또 3회 재시도해서
+                    # 최악의 경우 9번(최대 수 분)까지 낭비되는 구조였음.
+                    # 재시도는 client(oliveyoung_client.py) 쪽에서만 책임지고,
+                    # 여기서는 결과만 받아서 처리한다(원칙 3 갱신: 재시도 책임 일원화).
+                    try:
+                        raw_html = client.fetch_category_page(
+                            sub_code,
+                            page_idx=page_idx,
+                            rows_per_page=config.ROWS_PER_PAGE
+                        )
+                        products = parse_products(raw_html, category=sub_name)
 
-                            # 원칙 6: 정상 상품 페이지인지 최소한 검증 (파서 내부에서 처리되지만, 여기선 None 체크)
-                            if products is None:
-                                products = []
+                        # 원칙 6: 정상 상품 페이지인지 최소한 검증 (파서 내부에서 처리되지만, 여기선 None 체크)
+                        if products is None:
+                            products = []
 
-                            page_success = True
-                            break  # 성공 시 재시도 루프 탈출
+                        page_success = True
 
-                        except Exception as e:
-                            last_error = str(e)
-                            if attempt < 3:
-                                # 지수 백오프 (8초, 20초, 50초) + 지터(0~4초)
-                                delay = (8 * (2.5 ** (attempt - 1))) + random.uniform(0, 4)
-                                logging.warning(
-                                    f"[{parent_name} > {sub_name}] page {page_idx} 실패 ({attempt}/3). "
-                                    f"{delay:.1f}초 후 재시도... ({last_error})"
-                                )
-                                time.sleep(delay)
-                            else:
-                                logging.error(
-                                    f"[{parent_name} > {sub_name}] page {page_idx} 최종 실패. "
-                                    f"해당 페이지 건너뜀. (오류: {last_error})"
-                                )
+                    except Exception as e:
+                        last_error = str(e)
+                        logging.error(
+                            f"[{parent_name} > {sub_name}] page {page_idx} 실패. "
+                            f"해당 페이지 건너뜀. (오류: {last_error})"
+                        )
 
                     if not page_success:
                         # 원칙 1, 2: 실패해도 break 하지 않고 기록만 한 뒤 다음 페이지로 계속 진행

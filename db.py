@@ -287,7 +287,8 @@ def compute_daiso_score(p):
     return round(score, 2)
 
 
-def save_oliveyoung_rankings(conn, products, run_date, captured_at, category="ALL", limit=100):
+def save_oliveyoung_rankings(conn, products, run_date, captured_at, category="ALL",
+                              limit=100, commit=True, log_result=True):
     count = 0
     for p in products[:limit]:
         if p.get("is_bundle"):
@@ -303,8 +304,10 @@ def save_oliveyoung_rankings(conn, products, run_date, captured_at, category="AL
             p.get("sale_price"), captured_at,
         ))
         count += 1
-    conn.commit()
-    logger.info(f"✅ 올리브영 랭킹 저장 완료: {count}개 (category={category})")
+    if commit:
+        conn.commit()
+    if log_result:
+        logger.info(f"✅ 올리브영 랭킹 저장 완료: {count}개 (category={category})")
     return count
 
 
@@ -330,11 +333,14 @@ def update_daiso_rankings(conn, run_date, limit=100):
 def save_ranking(*args, **kwargs):
     """
     레거시 랭킹 수집기 호환용 (유연한 인자 처리).
-    ranking_collector.save_rankings()에서 다음과 같이 호출됨:
+    ranking_collector.save_rankings()에서 항목마다 1개씩 호출됨:
         db.save_ranking(conn, item, "DAILY_BEST", category, run_date, captured_at)
 
-    ⚠️ 이전 버전은 category 인자를 완전히 무시하고 'ALL'로 하드코딩했음.
-    지금은 카테고리별 랭킹으로 확장해도 안전하게 args[3]을 category로 전달한다.
+    ⚠️ 이전에는 호출될 때마다 매번 conn.commit()과 "1개 저장 완료" 로그를 찍어서
+    랭킹 100개 저장 시 커밋 100번 + 의미 없는 로그 100줄이 발생했음.
+    호출부(ranking_collector.save_rankings)가 어차피 끝나고 나서 요약 로그를
+    남기고, run_daily.py에서 한 번에 commit()하므로 여기서는 commit/log 없이
+    INSERT만 수행한다.
     """
     if len(args) >= 4:
         conn = args[0]
@@ -354,6 +360,7 @@ def save_ranking(*args, **kwargs):
         captured_at = args[-1] if len(args) >= 6 else ""
 
         return save_oliveyoung_rankings(
-            conn, [p], run_date, captured_at, category=category, limit=100
+            conn, [p], run_date, captured_at, category=category, limit=100,
+            commit=False, log_result=False,
         )
     return 0

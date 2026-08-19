@@ -111,6 +111,19 @@ class OliveYoungClient:
             context.close()
 
     def _fetch_with_browser(self, url, wait_selector=None):
+        """
+        네트워크/HTTP 오류: MAX_RETRIES(3회)까지 지수 백오프로 재시도 (실제 장애 대응용).
+
+        ⚠️ 셀렉터 미출현(wait_for_selector timeout)은 "차단"일 수도 있지만,
+        카테고리의 마지막 페이지처럼 실제로 상품이 없어서 사이트가 다른 형태의
+        페이지를 돌려주는 정상적인 경우일 수도 있다. 이걸 구분할 방법이 없으므로,
+        예전처럼 무겁게(최대 3회, 회당 최대 15초+백오프) 재시도해서 예외를 던지는 대신
+        가볍게 딱 1번만 더 확인해보고, 그래도 안 뜨면 지금까지 받은 HTML을 그대로
+        반환한다. 실제로 상품이 있는지 없는지는 parse_products()가 최종 판단하므로,
+        진짜 빈 페이지면 자연스럽게 "카테고리 종료"로 처리되고, 진짜 차단이었다면
+        parse_products()도 0개를 반환해 동일하게 처리된다(과도한 재시도로 시간을
+        낭비하지 않음).
+        """
         last_error = None
 
         for attempt in range(1, MAX_RETRIES + 1):
@@ -127,21 +140,22 @@ class OliveYoungClient:
                 continue
 
             if wait_selector and not selector_found:
-                if attempt < MAX_RETRIES:
-                    delay = _retry_delay(attempt)
-                    logger.warning(
-                        f"selector 미출현({attempt}/{MAX_RETRIES}, 차단/렌더 실패 의심으로 "
-                        f"{delay:.1f}초 후 재시도): {wait_selector} ({url})"
+                if attempt == 1:
+                    # 렌더링 지연일 가능성에 대비해 짧게 한 번만 재확인
+                    logger.info(
+                        f"selector 미출현 - 짧게 한 번만 재확인 후 계속 진행: "
+                        f"{wait_selector} ({url})"
                     )
-                    time.sleep(delay)
+                    time.sleep(3 + random.uniform(0, 2))
                     continue
                 else:
-                    logger.error(
-                        f"selector 끝내 미출현 - 수집 실패로 처리: {wait_selector} ({url})"
+                    # 더 이상 재시도하지 않고 지금까지 받은 HTML을 그대로 반환.
+                    # (카테고리 종료 페이지인지 실제 차단인지는 parse_products()가 판단)
+                    logger.info(
+                        f"selector 재확인 후에도 미출현 - 카테고리 종료 페이지일 수 있어 "
+                        f"파서 판단에 위임: {wait_selector} ({url})"
                     )
-                    raise Exception(
-                        f"셀렉터 미출현으로 수집 실패(차단 의심): {wait_selector} ({url})"
-                    )
+                    return html
 
             return html
 
