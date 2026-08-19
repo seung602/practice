@@ -194,18 +194,17 @@ def parse_products(html, category=""):
 
 def parse_ranked_products(html, category="ALL", limit=100):
     """
-    🚨 기획전 상품은 랭킹 집계에서 제외!
-    실제 '단품 트렌드'만 1~100위로 매깁니다.
+    기획전, 1+1 여부 상관없이 사이트에 노출된 순서대로 1~100위 랭킹을 매깁니다.
+    (is_bundle 여부는 DB에 그대로 저장되므로, 나중에 분석할 때만 필터링하면 됩니다.)
     """
     products = parse_products(html, category)
-    rank_counter = 1
-    for p in products:
-        if p.get("is_bundle"):
-            p["rank"] = None
+    
+    # 페이지에 노출된 순서(1~100) 그대로 랭킹 부여
+    for rank_counter, p in enumerate(products, start=1):
+        if rank_counter <= limit:
+            p["rank"] = rank_counter
         else:
-            if rank_counter <= limit:
-                p["rank"] = rank_counter
-                rank_counter += 1
-            else:
-                p["rank"] = None
-    return [p for p in products if p["rank"] is not None][:limit]
+            p["rank"] = None
+            
+    # 랭킹이 부여된 상품(1~limit)만 반환
+    return [p for p in products if p.get("rank") is not None][:limit]
