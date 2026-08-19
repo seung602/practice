@@ -204,9 +204,17 @@ class OliveYoungClient:
         logger.info(f"[{parent_disp_cat_no}] 세부카테고리 발견: {len(subcategories)}개")
         return subcategories
 
-    def fetch_top30(self):
+     def fetch_top100(self):
+        """
+        올리브영 메인 랭킹 Top 100 수집 
+        (서버가 100개를 모두 내려주도록 특정 트래킹 파라미터 포함)
+        """
+        url = (
+            "https://www.oliveyoung.co.kr/store/main/getBestList.do"
+            "?t_page=%ED%99%88&t_click=GNB&t_gnb_type=%EB%9E%AD%ED%82%B9&t_swiping_type=N"
+        )
         return self._fetch_with_browser(
-            "https://www.oliveyoung.co.kr/store/main/getBestList.do",
+            url,
             wait_selector=".cate_prd_list > li",
         )
 
