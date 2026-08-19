@@ -1,0 +1,72 @@
+name: Daily Collector Bot
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # 매일 UTC 00:00 (한국 시간 오전 9시) 실행
+  workflow_dispatch:      # GitHub 수동 실행 버튼
+
+permissions:
+  contents: write
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # 1. 파이썬 의존성 패키지 설치
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # 2. Playwright Chromium 브라우저 및 시스템 라이브러리 설치
+      - name: Install Playwright Browsers
+        run: |
+          playwright install chromium --with-deps
+
+      # 3. 크롤링 스크립트 실행
+      - name: Run Daily Collector
+        run: |
+          python run_daily.py
+
+      # 4. beauty_catalog.db 용량 정리 (WAL 반영 + VACUUM)
+      - name: Compact database
+        run: |
+          python -c "
+          import sqlite3
+          conn = sqlite3.connect('beauty_catalog.db')
+          conn.execute('PRAGMA wal_checkpoint(TRUNCATE);')
+          conn.execute('VACUUM;')
+          conn.close()
+          "
+
+      # 5. 결과 저장 및 Push (beauty_catalog.db는 Git LFS로 추적됨 - .gitattributes 참고)
+      - name: Commit and Push changes
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Update daily trend data" && git push)
+
+      # 6. 통합 웹 서버 재배포 트리거
+      #    RENDER_DEPLOY_HOOK_URL은 GitHub repo Settings → Secrets and variables → Actions 에서 등록
+      #    (예: https://api.render.com/deploy/srv-xxxxxxxx?key=xxxxxxxx 전체 URL을 시크릿 값으로 저장)
+      - name: Trigger unified web deploy
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$RENDER_DEPLOY_HOOK_URL" ]; then
+            echo "⚠️ RENDER_DEPLOY_HOOK_URL 시크릿이 설정되지 않아 배포 트리거를 건너뜁니다."
+          else
+            curl -fsS -X POST "$RENDER_DEPLOY_HOOK_URL"
+          fi
