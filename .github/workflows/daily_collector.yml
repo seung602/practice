@@ -1,27 +1,26 @@
 name: Daily Collector
 
 on:
-  schedule:
-    - cron: '0 1 * * *' # 매일 새벽 1시 (UTC 기준, 한국 시간 오전 10시)
-  workflow_dispatch: # 수동 실행 버튼 활성화
+  # schedule:
+  #   - cron: '0 1 * * *'  # 자체 실행 비활성화 (cron-job.org가 외부 트리거)
+  workflow_dispatch:
 
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 60 # 60분 초과 시 강제 종료 (무한 루프 방지)
+    timeout-minutes: 70
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          lfs: true # Git LFS 파일(DB) 다운로드 활성화
+          lfs: true
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      # 🚀 [최적화 1] pip 패키지 캐싱 (매번 라이브러리 다운로드 방지)
       - name: Cache pip packages
         uses: actions/cache@v4
         with:
@@ -35,7 +34,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # 🚀 [최적화 2] Playwright 브라우저 캐싱 (매번 300MB 다운로드 방지)
       - name: Cache Playwright Browsers
         uses: actions/cache@v4
         id: playwright-cache
@@ -45,13 +43,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-playwright-
 
-      # 🚀 [최적화 3] --with-deps 제거 (지옥의 apt-get 폰트 다운로드 스킵)
       - name: Install Playwright Browsers
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: playwright install chromium
 
       - name: Run daily collection script
-        run: python run_daily.py
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python run_daily.py 2>&1 | tee run_log.txt
 
       - name: Optimize SQLite Database
         run: |
@@ -67,6 +66,7 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          echo "run_log.txt" >> .gitignore
           git add .
           git diff --quiet && git diff --staged --quiet || (git commit -m "Update daily trend data" && git push)
 
@@ -75,7 +75,36 @@ jobs:
           RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
         run: |
           if [ -z "$RENDER_DEPLOY_HOOK_URL" ]; then
-            echo "⚠️ RENDER_DEPLOY_HOOK_URL 시크릿이 설정되지 않아 배포 트리거를 건너뜁니다."
+            echo "RENDER_DEPLOY_HOOK_URL 시크릿이 없어 배포를 건너뜁니다."
           else
             curl -fsS -X POST "$RENDER_DEPLOY_HOOK_URL"
           fi
+
+      - name: Send Telegram Notification
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          STATUS="${{ job.status }}"
+          if [ -f run_log.txt ]; then
+            OY_COUNT=$(grep "고유 상품 수:" run_log.txt | tail -1 | awk '{print $NF}')
+            DAISO_COUNT=$(grep -oE '다이소 카탈로그 수집 완료: 카테고리 [0-9]+개 / 페이지 [0-9]+개 / 고유 상품 [0-9]+개' run_log.txt | grep -oE '고유 상품 [0-9]+' | grep -oE '[0-9]+' | tail -1)
+            OY_NEW=$(grep "스냅샷 저장 통계: 신규" run_log.txt | grep -v "다이소" | tail -1 | grep -oE '신규 [0-9]+개' | grep -oE '[0-9]+')
+            DAISO_NEW=$(grep "다이소 스냅샷 저장 통계: 신규" run_log.txt | tail -1 | grep -oE '신규 [0-9]+개' | grep -oE '[0-9]+')
+            TRANSLATED=$(grep "번역 완료: 신규/변경" run_log.txt | tail -1 | grep -oE '신규/변경 [0-9]+개' | grep -oE '[0-9]+')
+          fi
+          OY_COUNT=${OY_COUNT:-"알 수 없음"}
+          DAISO_COUNT=${DAISO_COUNT:-"알 수 없음"}
+          OY_NEW=${OY_NEW:-"0"}
+          DAISO_NEW=${DAISO_NEW:-"0"}
+          TRANSLATED=${TRANSLATED:-"0"}
+          if [ "$STATUS" = "success" ]; then
+            MSG="수집 및 DB 백업 정상 완료"
+          else
+            MSG="수집 중 오류 발생! GitHub 로그 확인"
+          fi
+          TEXT=$(printf '🤖 일일 뷰티 트렌드 봇\n🏪 올리브영: %s개 (신규 %s)\n🏬 다이소: %s개 (신규 %s)\n🌐 영어 번역: %s개 갱신\n💬 %s' "$OY_COUNT" "$OY_NEW" "$DAISO_COUNT" "$DAISO_NEW" "$TRANSLATED" "$MSG")
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${TEXT}"
