@@ -5,3 +5,5 @@ __pycache__/
 venv/
 .DS_Store
 *.log
+run_log.txt
+run_log.txt

@@ -128,7 +128,7 @@ def run_translation_step():
     logging.info("=== [4/4] 상품명 영어 번역(Gemini) 캐시 갱신 시작 ===")
     conn = db.connect()
     try:
-        stats = translate_service.sync_translations(conn)
+        stats = translate_service.sync_all(conn)
         logging.info(f"=== [4/4] 번역 캐시 갱신 완료: {stats} ===")
         return stats
     except Exception as e:

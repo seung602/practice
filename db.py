@@ -50,6 +50,13 @@ def init_schema(conn):
             started_at TEXT, finished_at TEXT, status TEXT,
             surfaces INTEGER, pages INTEGER, items_found INTEGER, unique_products INTEGER
         );
+        CREATE TABLE IF NOT EXISTS term_translations (
+            term_type TEXT NOT NULL,
+            term_ko TEXT NOT NULL,
+            term_en TEXT,
+            updated_at TEXT,
+            PRIMARY KEY (term_type, term_ko)
+        );
     """)
 
     cursor = conn.execute("PRAGMA table_info(products)")

@@ -1,5 +1,6 @@
 import time
 import logging
+from collections import defaultdict
 from datetime import datetime
 import db
 import daiso_config as dconfig
@@ -96,11 +97,18 @@ def run_daiso_catalog_collection():
             )
         else:
             seen_ids = set()
+            stats = defaultdict(int)
             for p in products:
                 p["daiso_score"] = db.compute_daiso_score(p)
                 db.upsert_product(conn, p, started_at)
-                db.save_snapshot(conn, p, run_date, started_at)
+                change_type = db.save_snapshot(conn, p, run_date, started_at)
+                stats[change_type] += 1
                 seen_ids.add(p["product_id"])
+
+            logging.info(
+                f"다이소 스냅샷 저장 통계: 신규 {stats['NEW']}개 / "
+                f"변경 {stats['CHANGED']}개 / 미변경 {stats['UNCHANGED']}개"
+            )
 
             db.update_daiso_rankings(conn, run_date)
 
