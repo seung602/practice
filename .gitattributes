@@ -1,3 +1,2 @@
 # beauty_catalog.db는 매일 갱신되는 바이너리 파일이라 일반 git으로 추적하면
 # 저장소 용량이 무한정 누적됩니다. Git LFS로 추적해 히스토리 부담을 줄입니다.
-*.db filter=lfs diff=lfs merge=lfs -text
