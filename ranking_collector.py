@@ -25,7 +25,7 @@ logging.basicConfig(
 def save_rankings(conn, rankings, category, ranking_date, collected_at):
     """
     수집된 랭킹 리스트를 DB에 안전하게 저장합니다.
-    item이 dict 형태가 아니거나 문자열 형태인 경우 예외를 방지합니다.
+    기획전/번들 상품(is_bundle) 여부와 상관없이 사이트에 노출된 순서대로 1~100위를 모두 저장합니다.
     """
     if not rankings:
         logging.warning(f"[{category}] 저장할 랭킹 데이터가 없습니다.")
@@ -36,6 +36,7 @@ def save_rankings(conn, rankings, category, ranking_date, collected_at):
         return
 
     saved_count = 0
+    bundle_count = 0  # 기획전/번들 상품 카운트
 
     for idx, item in enumerate(rankings):
         # 1. item이 문자열 형태(JSON string)인 경우 dict로 파싱 시도
@@ -56,7 +57,11 @@ def save_rankings(conn, rankings, category, ranking_date, collected_at):
             logging.error(f"[{category}] {idx+1}번째 항목에 'product_id'가 없습니다: {item}")
             continue
 
-        # 4. DB 저장 실행 (상품 마스터 upsert + 랭킹 원본 저장)
+        # 4. 기획전 상품 통계 수집 (DB 저장은 필터링 없이 그대로 진행)
+        if item.get("is_bundle"):
+            bundle_count += 1
+
+        # 5. DB 저장 실행 (상품 마스터 upsert + 랭킹 원본 저장)
         try:
             upsert_product(conn, item, collected_at)
             db.save_ranking(conn, item, "DAILY_BEST", category, ranking_date, collected_at)
@@ -64,7 +69,11 @@ def save_rankings(conn, rankings, category, ranking_date, collected_at):
         except Exception as e:
             logging.error(f"[{category}] 상품 저장 실패 (ID: {item.get('product_id')}): {e}")
 
-    logging.info(f"[{category}] 총 {len(rankings)}개 중 {saved_count}개 저장 완료.")
+    # ✅ 기획전 포함 여부를 로그로 명확히 출력 (디버깅 및 검증용)
+    logging.info(
+        f"[{category}] 총 {len(rankings)}개 중 {saved_count}개 저장 완료 "
+        f"(이 중 기획전/번들 상품: {bundle_count}개 포함)"
+    )
 
 
 def collect_rankings():
@@ -73,7 +82,7 @@ def collect_rankings():
     getBestList.do(일간 랭킹 100위) 페이지를 수집해 파싱합니다.
     """
     with OliveYoungClient() as client:
-        html = client.fetch_top100()  # 👈 fetch_top30() -> fetch_top100() 변경
+        html = client.fetch_top100()  # 👈 일간 베스트 100위 수집
     items = parse_ranked_products(html, category="ALL", limit=100)
     return items
 
@@ -86,7 +95,8 @@ def main():
     ranking_date = now.strftime("%Y-%m-%d")
     collected_at = now.strftime("%Y-%m-%d %H:%M:%S")
 
-    logging.info("=== 랭킹 수집 및 저장 시작 ===")
+    # GitHub Actions 로그 포맷과 일치하도록 [1/3] 태그 사용
+    logging.info("=== [1/3] 올리브영 랭킹 수집 시작 ===")
 
     # DB 연결 함수 존재 여부 확인
     if get_db_conn_func is None:
@@ -110,7 +120,8 @@ def main():
         if hasattr(conn, 'commit'):
             conn.commit()
             
-        logging.info("=== 랭킹 수집 및 저장 정상 완료 ===")
+        # ✅ 최종 완료 로그 (기획전 포함 100개 유지 강조)
+        logging.info(f"=== [1/3] 랭킹 수집 완료: {len(rankings)}개 (기획전/번들 상품 포함, 순위 밀림 없음) ===")
     except Exception as e:
         if conn and hasattr(conn, 'rollback'):
             conn.rollback()
