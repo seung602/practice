@@ -4,7 +4,7 @@ from bs4 import BeautifulSoup
 
 BASE_URL = "https://www.oliveyoung.co.kr"
 
-# 🚨 기획전 감지 키워드 (DB에는 is_bundle로 저장되나, 랭킹 집계에서는 이제 제외하지 않음)
+# 🚨 기획전 감지 키워드 (이것이 들어가면 랭킹 집계 제외)
 BUNDLE_KEYWORDS = [
     "기획", "1+1", "2+1", "3+1", "세트", "증정", "리필",
     "선물", "한정", "키트", "팩+토너", "미니", "샘플",
@@ -75,6 +75,10 @@ def extract_name(item):
     return ""
 
 
+# ============================================================
+# 🚨 강화된 가격 추출 (3중 폴백)
+# ============================================================
+
 def _nums_from_text(text):
     """텍스트에서 유효한 가격 숫자만 추출 (999/1000원 미만 노이즈 제거)"""
     if not text:
@@ -94,6 +98,12 @@ def _nums_from_text(text):
 
 
 def extract_prices(item):
+    """
+    1단계: 가격 관련 클래스 선택자
+    2단계: data-* 속성
+    3단계: 본문에서 '숫자+원' 패턴 (최후 수단)
+    """
+    # 1단계: 가격 요소 (대소문자 모두 커버)
     price_text = " ".join(
         clean_text(x) for x in item.select(
             ".price, .prd_price, .tx_price, .tx_num, .num, "
@@ -102,6 +112,7 @@ def extract_prices(item):
     )
     values = _nums_from_text(price_text)
 
+    # 2단계: data 속성
     if not values:
         for attr in ("data-price", "data-sell-price", "data-org-price",
                      "data-goods-price", "data-prc"):
@@ -111,6 +122,7 @@ def extract_prices(item):
                 if values:
                     break
 
+    # 3단계: 본문에서 "12,300원" 형태만 (리뷰 숫자 오인 방지)
     if not values:
         text = clean_text(item)
         won_vals = []
@@ -182,17 +194,18 @@ def parse_products(html, category=""):
 
 def parse_ranked_products(html, category="ALL", limit=100):
     """
-    🚨 기획전, 1+1 여부 상관없이 사이트에 노출된 순서대로 1~100위 랭킹을 매깁니다.
-    (is_bundle 여부는 DB에 그대로 저장되므로, 나중에 분석할 때만 필터링하면 됩니다.)
+    🚨 기획전 상품은 랭킹 집계에서 제외!
+    실제 '단품 트렌드'만 1~100위로 매깁니다.
     """
     products = parse_products(html, category)
-    
-    # 페이지에 노출된 순서(1~100) 그대로 랭킹 부여
-    for rank_counter, p in enumerate(products, start=1):
-        if rank_counter <= limit:
-            p["rank"] = rank_counter
-        else:
+    rank_counter = 1
+    for p in products:
+        if p.get("is_bundle"):
             p["rank"] = None
-            
-    # 랭킹이 부여된 상품(1~limit)만 반환
-    return [p for p in products if p.get("rank") is not None][:limit]
+        else:
+            if rank_counter <= limit:
+                p["rank"] = rank_counter
+                rank_counter += 1
+            else:
+                p["rank"] = None
+    return [p for p in products if p["rank"] is not None][:limit]

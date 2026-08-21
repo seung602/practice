@@ -6,6 +6,7 @@ from datetime import datetime
 import ranking_collector
 import catalog_collector
 import daiso_catalog_collector
+import translate_service
 import db
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -122,11 +123,27 @@ def run_daiso_catalog_step():
     return products
 
 
+def run_translation_step():
+    """신규/변경된 상품명만 Gemini로 영어 번역 -> product_name_en 캐시 갱신"""
+    logging.info("=== [4/4] 상품명 영어 번역(Gemini) 캐시 갱신 시작 ===")
+    conn = db.connect()
+    try:
+        stats = translate_service.sync_translations(conn)
+        logging.info(f"=== [4/4] 번역 캐시 갱신 완료: {stats} ===")
+        return stats
+    except Exception as e:
+        logging.error(f"번역 단계 실패(카탈로그 데이터에는 영향 없음): {e}")
+        return None
+    finally:
+        conn.close()
+
+
 def main():
     # 단계별로 독립 실행 -> 하나가 실패해도 나머지는 계속 진행
     run_ranking_step()
     run_catalog_step()
     run_daiso_catalog_step()
+    run_translation_step()
 
 
 if __name__ == "__main__":

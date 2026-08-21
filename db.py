@@ -66,6 +66,8 @@ def init_schema(conn):
         ('daiso_score', 'REAL DEFAULT 0'),
         ('created_at', 'TEXT'),
         ('updated_at', 'TEXT'),
+        ('product_name_en', 'TEXT'),
+        ('name_en_hash', 'TEXT'),
     ]:
         if col not in existing:
             try:

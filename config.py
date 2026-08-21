@@ -13,6 +13,15 @@ MIN_CATALOG_ITEMS = int(os.getenv("MIN_CATALOG_ITEMS", "100"))
 MISSING_DAYS_TO_SUSPECT = int(os.getenv("MISSING_DAYS_TO_SUSPECT", "7"))
 MISSING_DAYS_TO_INACTIVE = int(os.getenv("MISSING_DAYS_TO_INACTIVE", "30"))
 
+# --- 상품명 영어 번역(Gemini) 설정 ---
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")  # 고용량/저비용 모델
+TRANSLATE_ENABLED = os.getenv("TRANSLATE_ENABLED", "1") == "1"
+TRANSLATE_BATCH_SIZE = int(os.getenv("TRANSLATE_BATCH_SIZE", "40"))
+# 하루 실행당 번역 호출 상한(신규/변경 상품이 폭증해도 API 비용이 튀지 않도록 하는 안전장치).
+# 못 채운 나머지는 다음 날 실행에서 이어서 처리됨(캐시 방식이라 유실되지 않음).
+TRANSLATE_MAX_PER_RUN = int(os.getenv("TRANSLATE_MAX_PER_RUN", "1500"))
+
 REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "30"))
 # 페이지 요청 간 기본 지연 시간 (초). 실제 적용 시 지터(Jitter)가 추가됨
 REQUEST_DELAY_SECONDS = float(os.getenv("REQUEST_DELAY_SECONDS", "1.5"))

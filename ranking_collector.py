@@ -71,9 +71,10 @@ def collect_rankings():
     """
     랭킹 수집 크롤러 logic.
     getBestList.do(일간 랭킹 100위) 페이지를 수집해 파싱합니다.
+    (기존에는 이 함수가 빈 스텁이라 항상 빈 리스트를 반환했음)
     """
     with OliveYoungClient() as client:
-        html = client.fetch_top100()  # 👈 fetch_top30() -> fetch_top100() 변경
+        html = client.fetch_top30()
     items = parse_ranked_products(html, category="ALL", limit=100)
     return items
 
