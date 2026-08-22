@@ -122,12 +122,6 @@ TRANSLATE_BATCH_SIZE = int(os.getenv("TRANSLATE_BATCH_SIZE", "40"))
 # 하루 실행당 번역 호출 상한(신규/변경 상품이 폭증해도 API 비용이 튀지 않도록 하는 안전장치).
 # 못 채운 나머지는 다음 날 실행에서 이어서 처리됨(캐시 방식이라 유실되지 않음).
 TRANSLATE_MAX_PER_RUN = int(os.getenv("TRANSLATE_MAX_PER_RUN", "1500"))
-# Gemini 3.5 flash-lite 무료 티어 기준: 분당 20회 / 일일 500회.
-# 배치 1번 = API 호출 1번이므로, 이 두 값을 넘지 않게 안전장치를 둔다.
-GEMINI_RPM_LIMIT = int(os.getenv("GEMINI_RPM_LIMIT", "20"))
-GEMINI_RPD_LIMIT = int(os.getenv("GEMINI_RPD_LIMIT", "500"))
-# 실행 1번당 실제 호출 횟수 상한 (하루 1번 실행 기준, RPD에 여유 버퍼를 두고 설정)
-TRANSLATE_MAX_REQUESTS_PER_RUN = int(os.getenv("TRANSLATE_MAX_REQUESTS_PER_RUN", "450"))
 
 # 실패 페이지 로드/저장 헬퍼 함수
 def load_failed_pages():

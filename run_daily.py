@@ -30,9 +30,10 @@ def run_ranking_step():
         return []
 
     conn = db.connect()
+    saved_count = 0
     try:
-        # 기획전 필터링된 랭킹만 저장됨 (ranking_collector 내부에서 이미 처리)
-        ranking_collector.save_rankings(conn, rankings, "ALL", ranking_date, collected_at)
+        # ✅ 기획전/1+1 포함 실제 올리브영 화면과 동일하게 전체 저장 (재수집 시 중복도 자동 정리됨)
+        saved_count = ranking_collector.save_rankings(conn, rankings, "ALL", ranking_date, collected_at) or 0
         conn.commit()
     except Exception as e:
         conn.rollback()
@@ -45,7 +46,8 @@ def run_ranking_step():
     with open("data/oliveyoung_best.json", "w", encoding="utf-8") as f:
         json.dump(rankings, f, ensure_ascii=False, indent=2)
 
-    logging.info(f"=== [1/3] 랭킹 수집 완료: {len(rankings)}개 (기획전 제외됨) ===")
+    logging.info(f"=== [1/3] 랭킹 수집 완료: {len(rankings)}개 파싱 / {saved_count}개 저장(기획전 포함) ===")
+    logging.info(f"METRIC OY_RANKING_SAVED={saved_count}")
     return rankings
 
 
@@ -53,17 +55,16 @@ def run_catalog_step():
     """올리브영 전체 상품목록 수집 -> DB 저장"""
     logging.info("=== [2/3] 올리브영 전체 상품 카탈로그 수집 시작 ===")
     try:
-        products, status = catalog_collector.run_catalog_collection()
+        products, status, stats = catalog_collector.run_catalog_collection()
     except Exception as e:
         logging.error(f"카탈로그 수집 실패: {e}")
         return []
 
-    # 🚨 기획전 통계 로깅 (몇 개가 제외되었는지 확인용)
     if products:
         bundle_count = sum(1 for p in products if p.get("is_bundle"))
         logging.info(
             f"=== [2/3] 올리브영 카탈로그 완료: {len(products)}개 수집 "
-            f"(그 중 기획전 상품 {bundle_count}개, 랭킹 집계에서는 제외) ==="
+            f"(그 중 기획전/1+1 {bundle_count}개, 신규 {stats.get('NEW', 0)}개 — 랭킹에는 모두 포함됨) ==="
         )
     return products
 
@@ -72,7 +73,7 @@ def run_daiso_catalog_step():
     """다이소몰 뷰티 전체상품 수집 -> DB 저장 -> 🚨 자체 랭킹 계산"""
     logging.info("=== [3/3] 다이소몰 뷰티 카탈로그 수집 시작 ===")
     try:
-        products, status = daiso_catalog_collector.run_daiso_catalog_collection()
+        products, status, stats = daiso_catalog_collector.run_daiso_catalog_collection()
     except Exception as e:
         logging.error(f"다이소 카탈로그 수집 실패: {e}")
         return []
@@ -128,7 +129,7 @@ def run_translation_step():
     logging.info("=== [4/4] 상품명 영어 번역(Gemini) 캐시 갱신 시작 ===")
     conn = db.connect()
     try:
-        stats = translate_service.sync_all(conn)
+        stats = translate_service.sync_translations(conn)
         logging.info(f"=== [4/4] 번역 캐시 갱신 완료: {stats} ===")
         return stats
     except Exception as e:

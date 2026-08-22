@@ -50,13 +50,6 @@ def init_schema(conn):
             started_at TEXT, finished_at TEXT, status TEXT,
             surfaces INTEGER, pages INTEGER, items_found INTEGER, unique_products INTEGER
         );
-        CREATE TABLE IF NOT EXISTS term_translations (
-            term_type TEXT NOT NULL,
-            term_ko TEXT NOT NULL,
-            term_en TEXT,
-            updated_at TEXT,
-            PRIMARY KEY (term_type, term_ko)
-        );
     """)
 
     cursor = conn.execute("PRAGMA table_info(products)")
@@ -296,21 +289,36 @@ def compute_daiso_score(p):
     return round(score, 2)
 
 
+def delete_oliveyoung_rankings(conn, run_date, category="ALL"):
+    """✅ 신규: 같은 날짜에 랭킹 수집이 여러 번 트리거되어도(cron-job.org 등 외부 트리거 중복 실행)
+    daily_rankings에 중복 행이 쌓이지 않도록, 새로 저장하기 전에 같은 run_date의 기존 행을 지운다."""
+    cur = conn.execute(
+        "DELETE FROM daily_rankings WHERE source='oliveyoung' AND run_date=? AND category=?",
+        (run_date, category),
+    )
+    if cur.rowcount:
+        logger.info(f"🧹 올리브영 랭킹 재수집 감지: 기존 {run_date}({category}) {cur.rowcount}개 삭제 후 재저장")
+    return cur.rowcount
+
+
 def save_oliveyoung_rankings(conn, products, run_date, captured_at, category="ALL",
                               limit=100, commit=True, log_result=True):
+    """
+    ✅ 실제 올리브영 화면과 동일하게, 기획전/1+1 상품도 그대로 포함해서 저장한다.
+    (이전에는 is_bundle이면 통째로 건너뛰어서 1,2,3,5위처럼 순위에 구멍이 뚫렸었음)
+    is_bundle 여부 자체는 컬럼에 그대로 남겨서, 필요하면 나중에 화면에서만 뱃지로 표시 가능.
+    """
     count = 0
     for p in products[:limit]:
-        if p.get("is_bundle"):
-            continue
         conn.execute("""
             INSERT INTO daily_rankings (
                 source, run_date, category, rank_num, product_id, brand,
                 product_name, product_url, price, sale_price, captured_at, is_bundle
-            ) VALUES ('oliveyoung', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+            ) VALUES ('oliveyoung', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             run_date, category, p.get("rank"), p.get("product_id"), p.get("brand"),
             p.get("product_name"), p.get("product_url"), p.get("price"),
-            p.get("sale_price"), captured_at,
+            p.get("sale_price"), captured_at, 1 if p.get("is_bundle") else 0,
         ))
         count += 1
     if commit:
@@ -321,6 +329,11 @@ def save_oliveyoung_rankings(conn, products, run_date, captured_at, category="AL
 
 
 def update_daiso_rankings(conn, run_date, limit=100):
+    # ✅ 같은 날 여러 번 실행돼도 중복 저장되지 않도록 기존 당일 랭킹 삭제 후 재저장
+    cur = conn.execute("DELETE FROM daily_rankings WHERE source='daiso' AND run_date=? AND category='ALL'", (run_date,))
+    if cur.rowcount:
+        logger.info(f"🧹 다이소 랭킹 재수집 감지: 기존 {run_date} {cur.rowcount}개 삭제 후 재저장")
+
     rows = conn.execute("""
         SELECT product_id FROM products
         WHERE source = 'daiso' AND status = 'ACTIVE' AND daiso_score > 0

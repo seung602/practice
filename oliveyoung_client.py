@@ -97,52 +97,6 @@ class OliveYoungClient:
         finally:
             context.close()
 
-    def _fetch_scrolled(self, url, item_selector, target_count=100, max_scrolls=15, pause_ms=1200):
-        """
-        올리브영 랭킹(getBestList.do) 페이지는 무한스크롤 방식이라, 처음 로드시엔
-        item_selector가 20개 안팎만 존재한다. target_count(기본 100개)에 도달하거나
-        더 이상 개수가 늘지 않을 때까지 스크롤을 반복해서 나머지를 강제로 로드한다.
-        """
-        context, page = self._new_page()
-        try:
-            response = page.goto(url, wait_until="domcontentloaded", timeout=30000)
-            if response is not None and response.status == 403:
-                raise Exception(f"HTTP Error 403 (차단됨): {url}")
-
-            try:
-                page.wait_for_selector(item_selector, timeout=5000)
-            except Exception:
-                pass
-
-            stable_rounds = 0
-            last_count = 0
-            for _ in range(max_scrolls):
-                try:
-                    count = page.eval_on_selector_all(item_selector, "els => els.length")
-                except Exception:
-                    count = 0
-
-                if count >= target_count:
-                    break
-
-                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                page.wait_for_timeout(pause_ms)
-
-                if count <= last_count:
-                    stable_rounds += 1
-                    if stable_rounds >= 3:
-                        # 3번 연속 스크롤해도 개수가 안 늘면 더 이상 로드될 게 없는 것으로 판단
-                        break
-                else:
-                    stable_rounds = 0
-                last_count = count
-
-            final_count = page.eval_on_selector_all(item_selector, "els => els.length") if item_selector else 0
-            logger.info(f"랭킹 페이지 스크롤 로딩 완료: {item_selector} {final_count}개 확보 (목표 {target_count}개)")
-            return page.content()
-        finally:
-            context.close()
-
     def _fetch_with_browser(self, url, wait_selector=None):
         """
         네트워크/HTTP 오류: MAX_RETRIES(3회)까지 지수 백오프로 재시도.
@@ -230,24 +184,15 @@ class OliveYoungClient:
         """
         올리브영 메인 랭킹 Top 100 수집
         (서버가 100개를 모두 내려주도록 특정 트래킹 파라미터 포함)
-        무한스크롤 페이지라 스크롤을 반복해서 100개(또는 더 안 늘어날 때까지) 로드한다.
         """
         url = (
             "https://www.oliveyoung.co.kr/store/main/getBestList.do"
             "?t_page=%ED%99%88&t_click=GNB&t_gnb_type=%EB%9E%AD%ED%82%B9&t_swiping_type=N"
         )
-        item_selector = ".cate_prd_list > li"
-        last_error = None
-        for attempt in range(1, MAX_RETRIES + 1):
-            try:
-                return self._fetch_scrolled(url, item_selector, target_count=100)
-            except Exception as e:
-                last_error = e
-                if attempt < MAX_RETRIES:
-                    delay = _retry_delay(attempt)
-                    logger.warning(f"랭킹 페이지 요청 실패({attempt}/{MAX_RETRIES}), {delay:.1f}초 후 재시도: {e}")
-                    time.sleep(delay)
-        raise last_error or Exception(f"요청 실패: {url}")
+        return self._fetch_with_browser(
+            url,
+            wait_selector=".cate_prd_list > li",
+        )
 
     def fetch_category_page(self, disp_cat_no, page_idx=1, rows_per_page=48):
         if len(disp_cat_no) > 11:

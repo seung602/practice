@@ -182,6 +182,9 @@ def run_catalog_collection():
                 f"스냅샷 저장 통계: 신규 {stats['NEW']}개 / "
                 f"변경 {stats['CHANGED']}개 / 미변경 {stats['UNCHANGED']}개"
             )
+            # ✅ 텔레그램 알림이 안정적으로 grep할 수 있도록 고정 포맷 마커 로그 추가
+            logging.info(f"METRIC OY_CATALOG_COLLECTED={unique_count}")
+            logging.info(f"METRIC OY_CATALOG_NEW={stats['NEW']}")
 
             # 원칙 10: 불완전 수집 시 MISSING 처리 절대 금지
             if failed_count > 0:
@@ -220,4 +223,4 @@ def run_catalog_collection():
     finally:
         conn.close()
 
-    return products, status
+    return products, status, stats
