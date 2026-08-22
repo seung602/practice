@@ -125,7 +125,7 @@ def run_daiso_catalog_step():
 
 
 def run_translation_step():
-    """신규/변경된 상품명만 Gemini로 영어 번역 -> product_name_en 캐시 갱신"""
+    """신규/변경된 상품명·브랜드·카테고리를 Gemini로 영어 번역 -> EN 캐시 갱신"""
     logging.info("=== [4/4] 상품명 영어 번역(Gemini) 캐시 갱신 시작 ===")
     conn = db.connect()
     try:

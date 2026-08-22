@@ -68,6 +68,12 @@ def init_schema(conn):
         ('updated_at', 'TEXT'),
         ('product_name_en', 'TEXT'),
         ('name_en_hash', 'TEXT'),
+        ('brand_en', 'TEXT'),
+        ('brand_en_hash', 'TEXT'),
+        ('category_en', 'TEXT'),
+        ('category_en_hash', 'TEXT'),
+        ('parent_category_en', 'TEXT'),
+        ('parent_category_en_hash', 'TEXT'),
     ]:
         if col not in existing:
             try:
