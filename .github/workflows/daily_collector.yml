@@ -87,24 +87,35 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           STATUS="${{ job.status }}"
-          if [ -f run_log.txt ]; then
-            OY_COUNT=$(grep "고유 상품 수:" run_log.txt | tail -1 | awk '{print $NF}')
-            DAISO_COUNT=$(grep -oE '다이소 카탈로그 수집 완료: 카테고리 [0-9]+개 / 페이지 [0-9]+개 / 고유 상품 [0-9]+개' run_log.txt | grep -oE '고유 상품 [0-9]+' | grep -oE '[0-9]+' | tail -1)
-            OY_NEW=$(grep "스냅샷 저장 통계: 신규" run_log.txt | grep -v "다이소" | tail -1 | grep -oE '신규 [0-9]+개' | grep -oE '[0-9]+')
-            DAISO_NEW=$(grep "다이소 스냅샷 저장 통계: 신규" run_log.txt | tail -1 | grep -oE '신규 [0-9]+개' | grep -oE '[0-9]+')
-            TRANSLATED=$(grep "번역 완료: 신규/변경" run_log.txt | tail -1 | grep -oE '신규/변경 [0-9]+개' | grep -oE '[0-9]+')
-          fi
-          OY_COUNT=${OY_COUNT:-"알 수 없음"}
-          DAISO_COUNT=${DAISO_COUNT:-"알 수 없음"}
-          OY_NEW=${OY_NEW:-"0"}
-          DAISO_NEW=${DAISO_NEW:-"0"}
-          TRANSLATED=${TRANSLATED:-"0"}
+
+          # ✅ run_daily.py가 남기는 고정 포맷 "METRIC KEY=값" 라인을 grep해서 읽는다.
+          # (기존에는 자유 형식 한국어 로그 문장을 grep해서 로그 문구가 바뀌면 계속 깨졌음)
+          get_metric() {
+            if [ -f run_log.txt ]; then
+              grep -oE "METRIC $1=[0-9]+" run_log.txt | tail -1 | cut -d= -f2
+            fi
+          }
+
+          OY_CATALOG=$(get_metric OY_CATALOG_COLLECTED)
+          OY_NEW=$(get_metric OY_CATALOG_NEW)
+          OY_RANKING=$(get_metric OY_RANKING_SAVED)
+          DAISO_CATALOG=$(get_metric DAISO_CATALOG_COLLECTED)
+          DAISO_NEW=$(get_metric DAISO_CATALOG_NEW)
+
+          OY_CATALOG=${OY_CATALOG:-"확인불가"}
+          OY_NEW=${OY_NEW:-"확인불가"}
+          OY_RANKING=${OY_RANKING:-"확인불가"}
+          DAISO_CATALOG=${DAISO_CATALOG:-"확인불가"}
+          DAISO_NEW=${DAISO_NEW:-"확인불가"}
+
           if [ "$STATUS" = "success" ]; then
-            MSG="수집 및 DB 백업 정상 완료"
+            MSG="✅ 수집 및 DB 백업 정상 완료"
           else
-            MSG="수집 중 오류 발생! GitHub 로그 확인"
+            MSG="❌ 수집 중 오류 발생! GitHub 로그 확인"
           fi
-          TEXT=$(printf '🤖 일일 뷰티 트렌드 봇\n🏪 올리브영: %s개 (신규 %s)\n🏬 다이소: %s개 (신규 %s)\n🌐 영어 번역: %s개 갱신\n💬 %s' "$OY_COUNT" "$OY_NEW" "$DAISO_COUNT" "$DAISO_NEW" "$TRANSLATED" "$MSG")
+
+          TEXT=$(printf '🤖 일일 뷰티 트렌드 봇\n\n🏪 올리브영\n  · 카탈로그 수집: %s개 (신규 %s개)\n  · 랭킹 저장: %s개\n\n🏬 다이소\n  · 카탈로그 수집: %s개 (신규 %s개)\n\n💬 %s' \
+            "$OY_CATALOG" "$OY_NEW" "$OY_RANKING" "$DAISO_CATALOG" "$DAISO_NEW" "$MSG")
           curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d chat_id="${TELEGRAM_CHAT_ID}" \
             --data-urlencode "text=${TEXT}"
