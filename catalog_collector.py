@@ -111,7 +111,7 @@ def collect_catalog():
                     page_idx += 1
 
                     # 원칙 4: 페이지 사이 랜덤 대기 시간 적용 (1.5초 ~ 3.0초)
-                    delay = random.uniform(config.REQUEST_DELAY_SECONDS, config.REQUEST_DELAY_SECONDS + 1.5)
+                    delay = random.uniform(config.REQUEST_DELAY_SECONDS, config.REQUEST_DELAY_SECONDS + 0.6)
                     time.sleep(delay)
 
                 # 서브카테고리 완료 후 실패 페이지 기록 저장
