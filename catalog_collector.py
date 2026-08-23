@@ -94,9 +94,11 @@ def collect_catalog():
 
                     if not products:
                         consecutive_empty += 1
-                        # 원칙 7: 48개 미만이라고 바로 종료하지 않음. 연속 2회 비어있을 때만 종료
-                        if consecutive_empty >= 2:
-                            logging.info(f"[{parent_name} > {sub_name}] 빈 페이지 2회 연속 감지 - 해당 카테고리 수집 정상 종료")
+                        # 원칙 7: 48개 미만이라고 바로 종료하지 않음. 연속 3회 비어있을 때만 종료
+                        # (셀렉터 대기시간을 줄인 만큼, 서버가 살짝 느린 순간의 오탐으로
+                        #  실제 상품이 있는 페이지를 놓치지 않도록 여유를 1회 더 준다)
+                        if consecutive_empty >= 3:
+                            logging.info(f"[{parent_name} > {sub_name}] 빈 페이지 3회 연속 감지 - 해당 카테고리 수집 정상 종료")
                             break
                         page_idx += 1
                         continue
@@ -110,8 +112,11 @@ def collect_catalog():
 
                     page_idx += 1
 
-                    # 원칙 4: 페이지 사이 랜덤 대기 시간 적용 (1.5초 ~ 3.0초)
-                    delay = random.uniform(config.REQUEST_DELAY_SECONDS, config.REQUEST_DELAY_SECONDS + 0.6)
+                    # 원칙 4: 페이지 사이 랜덤 대기 시간 적용
+                    # ⚠️ 너무 줄이면(0.6폭) 403 차단 빈도가 늘 수 있어 1.0으로 여유를 둠.
+                    # 그래도 원본(1.5~3.0초)보다는 충분히 빠름 - 속도 이득의 대부분은
+                    # 컨텍스트 재사용/에셋 차단(oliveyoung_client.py)에서 이미 나옴.
+                    delay = random.uniform(config.REQUEST_DELAY_SECONDS, config.REQUEST_DELAY_SECONDS + 1.0)
                     time.sleep(delay)
 
                 # 서브카테고리 완료 후 실패 페이지 기록 저장
