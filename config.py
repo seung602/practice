@@ -15,7 +15,7 @@ MISSING_DAYS_TO_INACTIVE = int(os.getenv("MISSING_DAYS_TO_INACTIVE", "30"))
 
 REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "30"))
 # 페이지 요청 간 기본 지연 시간 (초). 실제 적용 시 지터(Jitter)가 추가됨
-REQUEST_DELAY_SECONDS = float(os.getenv("REQUEST_DELAY_SECONDS", "1.5"))
+REQUEST_DELAY_SECONDS = float(os.getenv("REQUEST_DELAY_SECONDS", "0.7"))
 
 USER_AGENT = os.getenv(
     "USER_AGENT",
