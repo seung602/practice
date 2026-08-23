@@ -18,6 +18,11 @@ BASE_RETRY_DELAY_SECONDS = 8
 RETRY_BACKOFF_FACTOR = 2.5
 RETRY_JITTER_SECONDS = 4
 
+# 셀렉터 대기 (카테고리 끝 페이지 빠른 감지용)
+SELECTOR_TIMEOUT_MS = 800
+# 셀렉터 미출현 시 재확인 전 대기
+SELECTOR_RECHECK_SLEEP = (0.2, 0.4)
+
 
 def _retry_delay(attempt):
     delay = BASE_RETRY_DELAY_SECONDS * (RETRY_BACKOFF_FACTOR ** (attempt - 1))
@@ -26,17 +31,16 @@ def _retry_delay(attempt):
 
 class OliveYoungClient:
     """
-    ⚠️ 이전 버전은 fetch 1번마다 sync_playwright() ~ browser.launch() ~ browser.close()를
-    새로 반복해서, 카테고리/페이지가 많아질수록 브라우저 기동 오버헤드가 누적되어
-    전체 수집 시간이 크게 늘어나는 문제가 있었다.
-
-    이제는 Chromium 브라우저를 클라이언트 생명주기 동안 1번만 띄워두고,
-    요청마다 가벼운 BrowserContext/Page만 새로 만들어 재사용한다.
+    - 브라우저는 생명주기 동안 1번만 띄움
+    - 페이지(context)도 1개만 재사용 → 매 요청마다 새로 만드는 오버헤드 제거
+    - 이미지/CSS/폰트 차단으로 로딩 속도 향상
     """
 
     def __init__(self):
         self._playwright = None
         self._browser = None
+        self._context = None
+        self._page = None
 
     def __enter__(self):
         self.start()
@@ -46,61 +50,79 @@ class OliveYoungClient:
         self.close()
 
     def start(self):
-        if self._browser is None:
-            self._playwright = sync_playwright().start()
-            self._browser = self._playwright.chromium.launch(headless=True)
-
-    def close(self):
         if self._browser is not None:
-            try:
-                self._browser.close()
-            except Exception:
-                pass
-            self._browser = None
-        if self._playwright is not None:
-            try:
-                self._playwright.stop()
-            except Exception:
-                pass
-            self._playwright = None
+            return
 
-    def _new_page(self):
-        self.start()
-        context = self._browser.new_context(
+        self._playwright = sync_playwright().start()
+        self._browser = self._playwright.chromium.launch(
+            headless=True,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+            ],
+        )
+        self._context = self._browser.new_context(
             user_agent=DESKTOP_UA,
             viewport={"width": 1920, "height": 1080},
             locale="ko-KR",
         )
-        context.add_init_script(
+        self._context.add_init_script(
             "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
         )
-        return context, context.new_page()
+
+        # 이미지 / 스타일시트 / 폰트 / 미디어 차단 → 로딩 대폭 단축
+        self._context.route(
+            "**/*",
+            lambda route: (
+                route.abort()
+                if route.request.resource_type in ("image", "stylesheet", "font", "media")
+                else route.continue_()
+            ),
+        )
+
+        self._page = self._context.new_page()
+
+    def close(self):
+        for obj, closer in [
+            (self._page, "close"),
+            (self._context, "close"),
+            (self._browser, "close"),
+            (self._playwright, "stop"),
+        ]:
+            if obj is not None:
+                try:
+                    getattr(obj, closer)()
+                except Exception:
+                    pass
+        self._page = None
+        self._context = None
+        self._browser = None
+        self._playwright = None
 
     def _fetch_once(self, url, wait_selector=None):
-        context, page = self._new_page()
-        try:
-            response = page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        self.start()
+        page = self._page
 
-            if response is not None and response.status == 403:
-                raise Exception(f"HTTP Error 403 (차단됨): {url}")
+        response = page.goto(url, wait_until="domcontentloaded", timeout=25000)
 
-            selector_found = True
-            if wait_selector:
-                try:
-                    # 🚀 카테고리 끝 감지 속도 극대화 (15초 -> 1.5초)
-                    page.wait_for_selector(wait_selector, timeout=1500)
-                except Exception:
-                    selector_found = False
+        if response is not None and response.status == 403:
+            raise Exception(f"HTTP Error 403 (차단됨): {url}")
 
-            html = page.content()
-            return html, selector_found
-        finally:
-            context.close()
+        selector_found = True
+        if wait_selector:
+            try:
+                page.wait_for_selector(wait_selector, timeout=SELECTOR_TIMEOUT_MS)
+            except Exception:
+                selector_found = False
+
+        html = page.content()
+        return html, selector_found
 
     def _fetch_with_browser(self, url, wait_selector=None):
         """
-        네트워크/HTTP 오류: MAX_RETRIES(3회)까지 지수 백오프로 재시도.
-        셀렉터 미출현은 가볍게 1번만 재확인 후 파서 판단에 위임.
+        네트워크/HTTP 오류: MAX_RETRIES(3회)까지 지수 백오프 재시도.
+        셀렉터 미출현: 1번만 가볍게 재확인 후 파서 판단에 위임.
         """
         last_error = None
 
@@ -123,8 +145,7 @@ class OliveYoungClient:
                         f"selector 미출현 - 짧게 한 번만 재확인 후 계속 진행: "
                         f"{wait_selector} ({url})"
                     )
-                    # 🚀 재확인 대기 시간 최소화 (0.5초)
-                    time.sleep(0.5 + random.uniform(0, 0.5))
+                    time.sleep(random.uniform(*SELECTOR_RECHECK_SLEEP))
                     continue
                 else:
                     logger.info(
@@ -143,17 +164,15 @@ class OliveYoungClient:
             f"?dispCatNo={parent_disp_cat_no}"
         )
 
-        context, page = self._new_page()
+        self.start()
+        page = self._page
+        page.goto(url, wait_until="domcontentloaded", timeout=25000)
         try:
-            page.goto(url, wait_until="domcontentloaded", timeout=30000)
-            try:
-                page.wait_for_selector('a[href*="dispCatNo="]', timeout=10000)
-            except Exception:
-                pass
-            time.sleep(2)
-            html = page.content()
-        finally:
-            context.close()
+            page.wait_for_selector('a[href*="dispCatNo="]', timeout=5000)
+        except Exception:
+            pass
+        time.sleep(0.8)
+        html = page.content()
 
         soup = BeautifulSoup(html, "html.parser")
         subcategories = []
@@ -165,7 +184,6 @@ class OliveYoungClient:
                 continue
 
             code = m.group(1)
-
             if code == parent_disp_cat_no:
                 continue
             if not code.startswith(parent_disp_cat_no):
@@ -181,10 +199,6 @@ class OliveYoungClient:
         return subcategories
 
     def fetch_top100(self):
-        """
-        올리브영 메인 랭킹 Top 100 수집
-        (서버가 100개를 모두 내려주도록 특정 트래킹 파라미터 포함)
-        """
         url = (
             "https://www.oliveyoung.co.kr/store/main/getBestList.do"
             "?t_page=%ED%99%88&t_click=GNB&t_gnb_type=%EB%9E%AD%ED%82%B9&t_swiping_type=N"
