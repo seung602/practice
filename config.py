@@ -1,5 +1,5 @@
-import os
 import json
+import os
 
 DB_PATH = os.getenv("DB_PATH", "beauty_catalog.db")
 BASE_URL = "https://www.oliveyoung.co.kr"
@@ -9,29 +9,23 @@ RANKING_URL = f"{BASE_URL}/store/main/getBestList.do"
 ROWS_PER_PAGE = int(os.getenv("ROWS_PER_PAGE", "48"))
 MAX_PAGES_PER_SURFACE = int(os.getenv("MAX_PAGES_PER_SURFACE", "1000"))
 MIN_CATALOG_ITEMS = int(os.getenv("MIN_CATALOG_ITEMS", "100"))
-
+MIN_RANKING_ITEMS = int(os.getenv("MIN_RANKING_ITEMS", "80"))
 MISSING_DAYS_TO_SUSPECT = int(os.getenv("MISSING_DAYS_TO_SUSPECT", "7"))
 MISSING_DAYS_TO_INACTIVE = int(os.getenv("MISSING_DAYS_TO_INACTIVE", "30"))
+REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "35"))
+REQUEST_DELAY_SECONDS = float(os.getenv("REQUEST_DELAY_SECONDS", "1.0"))
 
-REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "30"))
-# 페이지 요청 간 기본 지연 시간 (초). 실제 적용 시 지터(Jitter)가 추가됨
-REQUEST_DELAY_SECONDS = float(os.getenv("REQUEST_DELAY_SECONDS", "0.7"))
-
-USER_AGENT = os.getenv(
-    "USER_AGENT",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/120.0.0.0 Safari/537.36"
-)
-
+# Kept only for modules that still reference HEADERS. The Playwright client
+# intentionally does not override the installed Chromium's User-Agent.
+USER_AGENT = os.getenv("USER_AGENT", "")
 HEADERS = {
-    "User-Agent": USER_AGENT,
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
     "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
     "Referer": BASE_URL + "/",
 }
+if USER_AGENT:
+    HEADERS["User-Agent"] = USER_AGENT
 
-# 실패한 페이지 기록 파일 경로
 FAILED_PAGES_FILE = "failed_pages.json"
 
 RANKING_CATEGORIES = [
@@ -113,17 +107,13 @@ SUBCATEGORIES = {
 }
 
 PROBE_CATEGORIES = []
-
-# --- 상품명 영어 번역(Gemini) 설정 ---
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")  # 고용량/저비용 모델
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
 TRANSLATE_ENABLED = os.getenv("TRANSLATE_ENABLED", "1") == "1"
 TRANSLATE_BATCH_SIZE = int(os.getenv("TRANSLATE_BATCH_SIZE", "40"))
-# 하루 실행당 번역 호출 상한(신규/변경 상품이 폭증해도 API 비용이 튀지 않도록 하는 안전장치).
-# 못 채운 나머지는 다음 날 실행에서 이어서 처리됨(캐시 방식이라 유실되지 않음).
 TRANSLATE_MAX_PER_RUN = int(os.getenv("TRANSLATE_MAX_PER_RUN", "1500"))
 
-# 실패 페이지 로드/저장 헬퍼 함수
+
 def load_failed_pages():
     if os.path.exists(FAILED_PAGES_FILE):
         try:
@@ -132,6 +122,7 @@ def load_failed_pages():
         except Exception:
             return {}
     return {}
+
 
 def save_failed_pages(failed_pages_dict):
     try:
