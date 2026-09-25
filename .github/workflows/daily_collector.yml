@@ -1,20 +1,19 @@
 name: Daily Collector
 
 on:
-  # schedule:
-  #   - cron: '0 1 * * *'  # 자체 실행 비활성화 (cron-job.org가 외부 트리거)
   workflow_dispatch:
 
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 70
+    timeout-minutes: 90
 
     steps:
-    
       - name: Checkout repository
         uses: actions/checkout@v4
-        
+        with:
+          lfs: true
+
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
@@ -42,14 +41,26 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-playwright-
 
-      - name: Install Playwright Browsers
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: playwright install chromium
+      - name: Install Playwright Chromium
+        run: |
+          if [ "${{ steps.playwright-cache.outputs.cache-hit }}" = "true" ]; then
+            echo "Playwright browser cache hit"
+          else
+            playwright install --with-deps chromium
+          fi
+
+      - name: Static parser regression test
+        run: python oliveyoung_parser_test.py
+
+      - name: Olive Young live smoke test
+        run: python oliveyoung_smoke_test.py
 
       - name: Run daily collection script
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: python run_daily.py 2>&1 | tee run_log.txt
+        run: |
+          set -o pipefail
+          python run_daily.py 2>&1 | tee run_log.txt
 
       - name: Optimize SQLite Database
         run: |
@@ -69,7 +80,19 @@ jobs:
           git add .
           git diff --quiet && git diff --staged --quiet || (git commit -m "Update daily trend data" && git push)
 
+      - name: Upload Olive Young diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oliveyoung-diagnostics-${{ github.run_id }}
+          path: |
+            oliveyoung_debug_*.html
+            run_log.txt
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Trigger Render Deployment
+        if: success()
         env:
           RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
         run: |
@@ -86,35 +109,32 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           STATUS="${{ job.status }}"
-
-          # ✅ run_daily.py가 남기는 고정 포맷 "METRIC KEY=값" 라인을 grep해서 읽는다.
-          # (기존에는 자유 형식 한국어 로그 문장을 grep해서 로그 문구가 바뀌면 계속 깨졌음)
           get_metric() {
             if [ -f run_log.txt ]; then
               grep -oE "METRIC $1=[0-9]+" run_log.txt | tail -1 | cut -d= -f2
             fi
           }
-
           OY_CATALOG=$(get_metric OY_CATALOG_COLLECTED)
           OY_NEW=$(get_metric OY_CATALOG_NEW)
           OY_RANKING=$(get_metric OY_RANKING_SAVED)
           DAISO_CATALOG=$(get_metric DAISO_CATALOG_COLLECTED)
           DAISO_NEW=$(get_metric DAISO_CATALOG_NEW)
-
           OY_CATALOG=${OY_CATALOG:-"확인불가"}
           OY_NEW=${OY_NEW:-"확인불가"}
           OY_RANKING=${OY_RANKING:-"확인불가"}
           DAISO_CATALOG=${DAISO_CATALOG:-"확인불가"}
           DAISO_NEW=${DAISO_NEW:-"확인불가"}
-
           if [ "$STATUS" = "success" ]; then
             MSG="✅ 수집 및 DB 백업 정상 완료"
           else
             MSG="❌ 수집 중 오류 발생! GitHub 로그 확인"
           fi
-
           TEXT=$(printf '🤖 일일 뷰티 트렌드 봇\n\n🏪 올리브영\n  · 카탈로그 수집: %s개 (신규 %s개)\n  · 랭킹 저장: %s개\n\n🏬 다이소\n  · 카탈로그 수집: %s개 (신규 %s개)\n\n💬 %s' \
             "$OY_CATALOG" "$OY_NEW" "$OY_RANKING" "$DAISO_CATALOG" "$DAISO_NEW" "$MSG")
-          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -d chat_id="${TELEGRAM_CHAT_ID}" \
-            --data-urlencode "text=${TEXT}"
+          if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
+            curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -d chat_id="$TELEGRAM_CHAT_ID" \
+              --data-urlencode text="$TEXT"
+          else
+            echo "Telegram secret이 없어 알림을 건너뜁니다."
+          fi
